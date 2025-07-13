@@ -3,10 +3,9 @@
 #include "task.h"
 
 #include "bsp/board.h"
-#include "hardware/timer.h"
 #include "pico/stdlib.h"
 
-#include "config.h"
+#include "pico-cec/config.h"
 
 #include "blink.h"
 #include "cec-frame.h"
@@ -64,7 +63,7 @@ int main() {
   (void)xUSBTask;
   (void)xCDCTask;
 
-  cec_log_init();
+  cec_log_init(cdc_log);
 
   vTaskStartScheduler();
 

@@ -6,14 +6,13 @@
 #include "message_buffer.h"
 #include "task.h"
 
-#include "config.h"
+#include "pico-cec/config.h"
+#include "pico-cec/util.h"
 
-#include "cec-config.h"
 #include "cec-frame.h"
 #include "cec-id.h"
 #include "cec-log.h"
-#include "cec-task.h"
-#include "usb-cdc.h"
+#include "cec-user.h"
 
 #define LOG_LINE_LENGTH (64)
 #define LOG_QUEUE_LENGTH (16)
@@ -29,21 +28,23 @@ static uint8_t log_mb_storage[LOG_MB_SIZE];
 static volatile bool enabled = false;
 
 static void cec_log_task(void *param) {
+  log_callback_t log = param;
+
   while (true) {
     char buffer[LOG_LINE_LENGTH];
 
     size_t bytes = xMessageBufferReceive(log_mb, buffer, sizeof(buffer), pdMS_TO_TICKS(10));
     if (bytes > 0) {
-      cdc_log(buffer);
+      log(buffer);
     }
   }
 }
 
-void cec_log_init(void) {
+void cec_log_init(log_callback_t log) {
   log_mb = xMessageBufferCreateStatic(LOG_MB_SIZE, &log_mb_storage[0], &log_mb_static);
   enabled = false;
 
-  xTaskCreateStatic(cec_log_task, LOG_TASK_NAME, LOG_STACK_SIZE, NULL, LOG_PRIORITY, &log_stack[0],
+  xTaskCreateStatic(cec_log_task, LOG_TASK_NAME, LOG_STACK_SIZE, log, LOG_PRIORITY, &log_stack[0],
                     &log_task_static);
 }
 
@@ -106,10 +107,10 @@ __attribute__((format(printf, 5, 6))) static void log_printf(uint8_t initiator,
 
   va_list ap;
   va_start(ap, fmt);
-  snprintf(prefix, sizeof(prefix), "[%10llu] %02x %s %02x", cec_get_uptime_ms(),
+  snprintf(prefix, sizeof(prefix), "[%10llu] %02x %s %02x", util_uptime_ms(),
            send ? initiator : destination, arrow, send ? destination : initiator);
   vsnprintf(buffer, sizeof(buffer), fmt, ap);
-  cec_log_submitf("%s: %s"_CDC_BR, prefix, buffer);
+  cec_log_submitf("%s: %s"_LOG_BR, prefix, buffer);
   va_end(ap);
 }
 
@@ -204,7 +205,7 @@ void cec_log_frame(cec_frame_t *frame, bool recv) {
       case CEC_ID_VENDOR_COMMAND_WITH_ID:
         log_printf(initiator, destination, recv, frame->ack, "[%s]", cec_message[cmd]);
         for (int i = 0; i < msg->len; i++) {
-          cec_log_submitf(" %02x"_CDC_BR, msg->data[i]);
+          cec_log_submitf(" %02x"_LOG_BR, msg->data[i]);
         }
         break;
       case CEC_ID_REPORT_POWER_STATUS:
