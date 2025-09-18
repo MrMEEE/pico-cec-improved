@@ -62,6 +62,8 @@ add_executable(${PROJECT}
   src/main.c
   src/nvs.c
   src/usb-cdc.c
+  src/cec-cmd-send.c
+  src/cec-cmd-extra.c
   src/usb_descriptors.c
   src/usb_hid.c
   src/util.c

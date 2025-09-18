@@ -15,6 +15,8 @@
 #include "nvs.h"
 #include "tclie.h"
 #include "usb-cdc.h"
+#include "cec-cmd-send.h" // Declaration for exec_send_cec
+
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 
@@ -327,16 +329,19 @@ static int exec_set(void *arg, int argc, const char **argv) {
   return -1;
 }
 
+// Forward declaration for the send command
+int exec_send_cec(void *arg, int argc, const char **argv);
 static const tclie_cmd_t cmds[] = {
-    {"debug", exec_debug, "Control debug output.", "debug {on|off}"},
-    {"query", exec_query, "Query information.", "query {edid}"},
-    {"save", exec_save, "Save configuration.", "save"},
-    {"set", exec_set, "Set configuration parameters.",
-     "set {(config (edid_delay_ms|logical_address|physical_address <value>)|(device_type "
-     "{playback|recording}))|(keymap <value>)}"},
-    {"show", exec_show, "Show information.",
-     "show {cec|config|keymap|nvs|(stats {cec|cpu|tasks})|version}"},
-    {"reboot", exec_reboot, "Reboot system.", "reboot [bootsel]"},
+  {"debug", exec_debug, "Control debug output.", "debug {on|off}"},
+  {"query", exec_query, "Query information.", "query {edid}"},
+  {"save", exec_save, "Save configuration.", "save"},
+  {"set", exec_set, "Set configuration parameters.",
+   "set {(config (edid_delay_ms|logical_address|physical_address <value>)|(device_type "
+   "{playback|recording}))|(keymap <value>)}"},
+  {"show", exec_show, "Show information.",
+   "show {cec|config|keymap|nvs|(stats {cec|cpu|tasks})|version}"},
+  {"reboot", exec_reboot, "Reboot system.", "reboot [bootsel]"},
+  {"send", exec_send_cec, "Send CEC message.", "send <subcommand> ..."},
 };
 
 void cdc_task(void *params) {

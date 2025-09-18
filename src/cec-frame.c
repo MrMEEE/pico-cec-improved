@@ -6,6 +6,8 @@
 
 #include "cec-frame.h"
 #include "cec-log.h"
+#include "cec-task.h"
+#include "usb-cdc.h" // For cdc_printfln debug output
 
 #define NOTIFY_RX ((UBaseType_t)0)
 #define NOTIFY_TX ((UBaseType_t)1)
@@ -241,17 +243,40 @@ static int64_t frame_tx_callback(alarm_id_t alarm, void *user_data) {
 }
 
 static bool frame_tx(uint8_t *data, uint8_t len) {
+  if (cec_log_enabled()) {
+    cdc_printfln("[CEC DEBUG] frame_tx called! laddr=0x%02x, paddr=0x%04x", cec_get_logical_address(), cec_get_physical_address());
+    cdc_printfln("[CEC DEBUG] Pin state before idle wait: %d", gpio_get(CEC_PIN));
+    cdc_printfln("[CEC DEBUG] frame_tx called! If you see this, debug output is working.\n");
+  }
   unsigned char i = 0;
-
+  const int idle_timeout_ms = 500;
+  absolute_time_t idle_start = get_absolute_time();
+  if (cec_log_enabled()) {
+    cdc_printfln("[CEC] Waiting for idle...\n");
+    cdc_printfln("[CEC] Pin state before idle wait: %d\n", gpio_get(CEC_PIN));
+  }
   // wait 7 bit times of idle before sending
   while (i < 7) {
     vTaskDelay(pdMS_TO_TICKS(2.4));
-    if (gpio_get(CEC_PIN)) {
+    int pin_state = gpio_get(CEC_PIN);
+    if (cec_log_enabled()) {
+      cdc_printfln("[CEC DEBUG] Pin state during idle wait: %d (i=%d)", pin_state, i);
+    }
+    if (pin_state) {
       i++;
     } else {
       // reset
       i = 0;
     }
+    if (absolute_time_diff_us(idle_start, get_absolute_time()) > idle_timeout_ms * 1000) {
+      if (cec_log_enabled()) {
+        cdc_printfln("[CEC DEBUG] Idle wait timeout!");
+      }
+      return false;
+    }
+  }
+  if (cec_log_enabled()) {
+    cdc_printfln("[CEC DEBUG] Pin state after idle wait: %d", gpio_get(CEC_PIN));
   }
 
   cec_message_t message = {data, len};
@@ -261,10 +286,20 @@ static bool frame_tx(uint8_t *data, uint8_t len) {
                        .start = 0,
                        .ack = false,
                        .state = CEC_FRAME_STATE_START_LOW};
+  if (cec_log_enabled()) {                     
+    cdc_printfln("[CEC] Starting TX...\n");
+  }
   add_alarm_at(from_us_since_boot(time_us_64()), frame_tx_callback, &frame, true);
-  ulTaskNotifyTakeIndexed(NOTIFY_TX, pdTRUE, portMAX_DELAY);
-  // printf("high water mark = %lu\n", uxTaskGetStackHighWaterMark(xCECTask));
-  cec_log_frame(&frame, false);
+  // Add timeout to notification wait
+  const TickType_t notify_timeout = pdMS_TO_TICKS(1000); // 1s
+  BaseType_t notified = ulTaskNotifyTakeIndexed(NOTIFY_TX, pdTRUE, notify_timeout);
+  if (cec_log_enabled()) {
+    if (!notified) {
+      cdc_printfln("[CEC] TX notify timeout!\n");
+      return false;
+    }
+    cec_log_frame(&frame, false);
+  }
 
   if (frame.ack) {
     cec_stats.tx_frames++;
@@ -276,9 +311,24 @@ static bool frame_tx(uint8_t *data, uint8_t len) {
 }
 
 bool cec_frame_send(uint8_t pldcnt, uint8_t *pld) {
+  if (cec_log_enabled()) {
+    cdc_printfln("[CEC] cec_frame_send triggered\n");
+  }
   // disable GPIO ISR for sending
   gpio_set_irq_enabled(CEC_PIN, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, false);
-  return frame_tx(pld, pldcnt);
+  if (cec_log_enabled()) {
+    cdc_printfln("[CEC] cec_frame_send: pldcnt=%d\n", pldcnt);
+  }
+  if (cec_log_enabled()) {
+    for (int i = 0; i < pldcnt; ++i) {
+      cdc_printfln("[CEC] pld[%d]=0x%02x\n", i, pld[i]);
+    }
+  }
+  bool result = frame_tx(pld, pldcnt);
+  if (cec_log_enabled()) {
+    cdc_printfln("[CEC] cec_frame_send done, result=%d\n", result);
+  }
+  return result;
 }
 
 void cec_frame_get_stats(cec_frame_stats_t *stats) {
