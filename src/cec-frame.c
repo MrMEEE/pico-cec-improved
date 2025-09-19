@@ -163,6 +163,14 @@ uint8_t cec_frame_recv(uint8_t *pld, uint8_t address) {
 
   cec_log_frame(&rx_frame, true);
 
+  // Global debug print for all received CEC frames
+  if (cec_log_enabled()) {
+    cdc_printfln("[CEC RX] len=%d: ", rx_frame.message->len);
+    for (uint8_t i = 0; i < rx_frame.message->len; ++i) {
+      cdc_printfln("  [%d]=0x%02x", i, rx_frame.message->data[i]);
+    }
+  }
+
   if (rx_frame.state == CEC_FRAME_STATE_ABORT) {
     // printf("ABORT\n");
     cec_stats.rx_abort_frames++;
@@ -177,6 +185,7 @@ static int64_t frame_tx_callback(alarm_id_t alarm, void *user_data) {
   cec_frame_t *frame = (cec_frame_t *)user_data;
   uint64_t low_time = 0;
 
+  // Debug output removed from timer callback to prevent deadlocks/freezes
   switch (frame->state) {
     case CEC_FRAME_STATE_START_LOW:
       gpio_set_dir(CEC_PIN, GPIO_OUT);
@@ -228,13 +237,29 @@ static int64_t frame_tx_callback(alarm_id_t alarm, void *user_data) {
         // middle of safe sample period (0.85ms, 1.25ms)
         return time_next(frame->start, (850 + 1250) / 2);
       }
-    case CEC_FRAME_STATE_ACK_WAIT:
-      // handle follower sending ack
-      if (gpio_get(CEC_PIN) == false) {
+    case CEC_FRAME_STATE_ACK_WAIT: {
+      // Increased ACK sampling window and frequency
+      // Window: 4ms, Frequency: every 5us (800 samples)
+      // NOTE: Some TVs do not send an ACK pulse, or it may be too short to detect reliably in software.
+      bool ack_detected = false;
+      uint64_t ack_sample_start = time_us_64();
+      uint64_t now = ack_sample_start;
+      while ((now - ack_sample_start) < 4000) {
+        int pin = gpio_get(CEC_PIN);
+        if (!pin) {
+          ack_detected = true;
+          break;
+        }
+        uint64_t t0 = time_us_64();
+        while ((time_us_64() - t0) < 5) { __asm volatile ("nop"); }
+        now = time_us_64();
+      }
+      if (ack_detected) {
         frame->ack = true;
       }
       frame->state = CEC_FRAME_STATE_END;
       return time_next(frame->start, 2400);
+    }
     case CEC_FRAME_STATE_END:
     default:
       xTaskNotifyIndexedFromISR(xCECTask, NOTIFY_TX, 0, eNoAction, NULL);

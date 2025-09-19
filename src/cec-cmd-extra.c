@@ -71,8 +71,8 @@ static int exec_send_source(void *arg, int argc, const char **argv) {
         cdc_printfln("Invalid source id: %d", id);
         return -1;
     }
-    uint16_t paddr = id << 8; // e.g. 0x1000, 0x2000, ...
-    uint8_t pld[4] = { (cec_get_logical_address() << 4) | 0x0F, 0x82, (paddr >> 8) & 0xFF, paddr & 0xFF };
+    // Compose '4F 82 X0 00' where X is the source id
+    uint8_t pld[4] = { 0x4F, 0x82, (uint8_t)(id << 4), 0x00 };
     return send_cec_frame(4, pld);
 }
 
@@ -109,7 +109,20 @@ static int exec_send_mute(void *arg, int argc, const char **argv) {
 // send vendorid
 static int exec_send_vendorid(void *arg, int argc, const char **argv) {
     uint8_t pld[2] = { (cec_get_logical_address() << 4) | 0x00, 0x8C }; // Give Device Vendor ID
-    return send_cec_frame(2, pld);
+    int res = send_cec_frame(2, pld);
+
+    if (res == 0) {
+        // Wait for a response (blocking, adjust timeout as needed)
+        uint8_t rx[16] = {0};
+        uint8_t rxlen = cec_frame_recv(rx, cec_get_logical_address());
+        if (rxlen >= 5 && rx[1] == 0x87) { // 0x87 = Device Vendor ID
+            uint32_t vendor = (rx[2] << 16) | (rx[3] << 8) | rx[4];
+            cdc_printfln("[CEC] Device Vendor ID: 0x%06lX", (unsigned long)vendor);
+        } else {
+            cdc_printfln("[CEC] No Device Vendor ID response.");
+        }
+    }
+    return res;
 }
 
 // send reportpa
@@ -121,16 +134,16 @@ static int exec_send_reportpa(void *arg, int argc, const char **argv) {
 
 
 const tclie_cmd_t cec_extra_cmds[] = {
-    { "raw", exec_send_raw, "Send raw CEC bytes: send raw XX XX ...", NULL, { (const tclie_cmd_opt_t *)NULL, (size_t)0 } },
-    { "standby", exec_send_standby, "Send standby command to TV", NULL, { (const tclie_cmd_opt_t *)NULL, (size_t)0 } },
-    { "image", exec_send_image, "Send Image View On command to TV", NULL, { (const tclie_cmd_opt_t *)NULL, (size_t)0 } },
-    { "source", exec_send_source, "Send Active Source command: send source <id> (id=1,2,3.. for input)", NULL, { (const tclie_cmd_opt_t *)NULL, (size_t)0 } },
-    { "poweron", exec_send_poweron, "Send Power On command to TV", NULL, { (const tclie_cmd_opt_t *)NULL, (size_t)0 } },
-    { "volup", exec_send_volup, "Send Volume Up command to TV", NULL, { (const tclie_cmd_opt_t *)NULL, (size_t)0 } },
-    { "voldown", exec_send_voldown, "Send Volume Down command to TV", NULL, { (const tclie_cmd_opt_t *)NULL, (size_t)0 } },
-    { "mute", exec_send_mute, "Send Mute command to TV", NULL, { (const tclie_cmd_opt_t *)NULL, (size_t)0 } },
-    { "vendorid", exec_send_vendorid, "Request Device Vendor ID from TV", NULL, { (const tclie_cmd_opt_t *)NULL, (size_t)0 } },
-    { "reportpa", exec_send_reportpa, "Broadcast Report Physical Address", NULL, { (const tclie_cmd_opt_t *)NULL, (size_t)0 } },
+    { "raw", exec_send_raw, "Send raw CEC bytes: send raw XX XX ...", NULL, { NULL, 0 } },
+    { "standby", exec_send_standby, "Send standby command to TV", NULL, { NULL, 0 } },
+    { "image", exec_send_image, "Send Image View On command to TV", NULL, { NULL, 0 } },
+    { "source", exec_send_source, "Send Active Source command: send source <id> (id=1,2,3.. for input)", NULL, { NULL, 0 } },
+    { "poweron", exec_send_poweron, "Send Power On command to TV", NULL, { NULL, 0 } },
+    { "volup", exec_send_volup, "Send Volume Up command to TV", NULL, { NULL, 0 } },
+    { "voldown", exec_send_voldown, "Send Volume Down command to TV", NULL, { NULL, 0 } },
+    { "mute", exec_send_mute, "Send Mute command to TV", NULL, { NULL, 0 } },
+    { "vendorid", exec_send_vendorid, "Request Device Vendor ID from TV", NULL, { NULL, 0 } },
+    { "reportpa", exec_send_reportpa, "Broadcast Report Physical Address", NULL, { NULL, 0 } },
 };
 
 
